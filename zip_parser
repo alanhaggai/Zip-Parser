@@ -18,17 +18,17 @@ open my $fh, '<', $filename or die 'can not open $filename';
 binmode $fh;
 
 
-
+#    Filename Compressed_Size Last_Mod_File_Time Last_Mod_File_Date Position Extra_Field Extra_Field_Length
 my @printable_local_file_header = qw(
-    Filename Compressed_Size Last_Mod_File_Time Last_Mod_File_Date Position Extra_Field Extra_Field_Length
+    Filename Extra_Field Extra_Field_Length
 );
 
 my @printable_central_directory_record = qw(
-    Filename Compressed_Size Position Version_Made_By Extra_Field
+    Filename Compressed_Size Position Version_Made_By Extra_Field Extra_Field_Length
 );
 
+#    Number_Of_This_Disk Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk Total_Number_Of_Entries_In_The_Central_Directory Size_Of_The_Central_Directory Offset_Of_Start_Of_Central_Directory_With_Respect_To_The_Starting_Disk_Number .ZIP_File_Comment_Length .ZIP_File_Comment Position
 my @printable_end_central_directory_record = qw(
-    Number_Of_This_Disk Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk Total_Number_Of_Entries_In_The_Central_Directory Size_Of_The_Central_Directory Offset_Of_Start_Of_Central_Directory_With_Respect_To_The_Starting_Disk_Number .ZIP_File_Comment_Length .ZIP_File_Comment Position
 );
 
 sub printable {
@@ -54,7 +54,7 @@ sub dissect {
 
     if( $header eq 'lfh' || $header eq 'cdr' ) {
         &mod_file_date_time($data);
-        #&extra_field($data);
+        &extra_field($data);
     } else {
         $data = [$data];
     }
@@ -64,28 +64,46 @@ sub dissect {
     
         map {
             if( &printable($_, $header) ) {
-                if(ref($temp{$_}) ne 'HASH') {
-                    printf "\t\t%-30s - %25s\n", $_, $temp{$_};
+                if( ref($temp{$_}) ne 'HASH' ) {
+                    printf "%s - %s\n", $_, $temp{$_};
                 } else {
-                    printf "\t\t%-30s -", $_;
+                    printf "%s -", $_;
                     my %hash = %{$temp{$_}};
                     map {
-                        printf "\n\t\t        %-22s - %25s", $_, $hash{$_};
+                        if( ref($hash{$_}) eq 'ARRAY' ) {
+                            printf "\n%s -", $_;
+                            map {
+                                print "\n\t$_";
+                            } @{$hash{$_}};
+                        } else {
+                            printf "\n%s - %s", $_, $hash{$_};
+                        }
                     } keys %hash;
                     print "\n";
                 }
             }
         } keys %temp;
 
-        print "\t", '-' x 72, "\n";
+        print "\n\n";
     }
 }
 
 sub extra_field {
     my $data = shift;
+    my ( @header, @data );
 
-    for( 0 .. @$data ) {
-        $data->[$_]{'Extra_Field'} = 'n';
+    for( my $i = 0; $i < @$data; $i++ ) {
+        if( exists $data->[$i]{'Extra_Field'} ) {
+            for( my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4 ) {
+                #push @header, substr($data->[$i]{'Extra_Field'}, $j, 2);
+                push @header, unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j, 2)));
+                push @data, unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j + 2, 2)));
+            }
+            $data->[$i]{'Extra_Field'} = {
+                Header => \@header,
+                Data   => \@data,
+            };
+        }
     }
 }
 
@@ -151,6 +169,7 @@ my $parser_local_file_header = Array($number_of_files,
         ULInt16('Extra_Field_Length'),
         String('Filename', sub { $_->ctx->{'Filename_Length'} }),
         Field('Extra_Field', sub { $_->ctx->{'Extra_Field_Length'} }),
+        #Array(sub { $_->ctx->{'Extra_Field_Length'} / 2 }, ULInt16('Header'), ULInt16('Data')),
         # Add an array for header[] and data[]
         Field('Compressed_Data', sub { $_->ctx->{'Compressed_Size'} }),
         Anchor('Position'),

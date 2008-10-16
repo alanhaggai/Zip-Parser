@@ -1,0 +1,191 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Data::ParseBinary;
+use Data::Dumper;
+
+# Check if a file has been passed as an argument or not
+if( @ARGV == 0 ) {
+    print " No .zip file has been passed.\n";
+    exit;
+}
+
+undef $/;
+
+my $filename = shift;
+open my $fh, '<', $filename or die 'can not open $filename';
+binmode $fh;
+
+
+
+my @printable_local_file_header = qw(
+    Filename Compressed_Size Last_Mod_File_Time Last_Mod_File_Date Position Extra_Field Extra_Field_Length
+);
+
+my @printable_central_directory_record = qw(
+    Filename Compressed_Size Position Version_Made_By Extra_Field
+);
+
+my @printable_end_central_directory_record = qw(
+    Number_Of_This_Disk Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk Total_Number_Of_Entries_In_The_Central_Directory Size_Of_The_Central_Directory Offset_Of_Start_Of_Central_Directory_With_Respect_To_The_Starting_Disk_Number .ZIP_File_Comment_Length .ZIP_File_Comment Position
+);
+
+sub printable {
+    my ( $var, $header ) = @_;
+    my @printable;
+
+    if( $header eq 'lfh' ) {
+        @printable = @printable_local_file_header;
+    } elsif( $header eq 'cdr' ) {
+        @printable = @printable_central_directory_record;
+    } elsif( $header eq 'ecdr' ) {
+        @printable = @printable_end_central_directory_record;
+    }
+
+    for( @printable ) {
+        return 1 if($var eq $_);
+    }
+    return 0;
+}
+
+sub dissect {
+    my ( $data, $header ) = @_;
+
+    if( $header eq 'lfh' || $header eq 'cdr' ) {
+        &mod_file_date_time($data);
+        #&extra_field($data);
+    } else {
+        $data = [$data];
+    }
+
+    for( @$data ) {
+        my %temp = %$_;
+    
+        map {
+            if( &printable($_, $header) ) {
+                if(ref($temp{$_}) ne 'HASH') {
+                    printf "\t\t%-30s - %25s\n", $_, $temp{$_};
+                } else {
+                    printf "\t\t%-30s -", $_;
+                    my %hash = %{$temp{$_}};
+                    map {
+                        printf "\n\t\t        %-22s - %25s", $_, $hash{$_};
+                    } keys %hash;
+                    print "\n";
+                }
+            }
+        } keys %temp;
+
+        print "\t", '-' x 72, "\n";
+    }
+}
+
+sub extra_field {
+    my $data = shift;
+
+    for( 0 .. @$data ) {
+        $data->[$_]{'Extra_Field'} = 'n';
+    }
+}
+
+sub mod_file_date_time {
+    my $data = shift;
+    for( 0 .. @$data - 1 ) {
+        # Convert Last Mod File Time to Hour, Minute and Second
+        $data->[$_]{'Last_Mod_File_Time'} = pack('n', $data->[$_]{'Last_Mod_File_Time'});
+        my $convert = BitStruct('Last_Mod_File_Time',
+            BitField('Hour', 5),
+            BitField('Minute', 6),
+            BitField('Second', 5),
+        );
+        $data->[$_]{'Last_Mod_File_Time'} = $convert->parse(CreateStreamReader($data->[$_]{'Last_Mod_File_Time'}));
+
+        # Convert Last Mod File Date to Year, Month and Day
+        $data->[$_]{'Last_Mod_File_Date'} = pack('n', $data->[$_]{'Last_Mod_File_Date'});
+        $convert = BitStruct('Last Mod File Date',
+            BitField('Year', 7),
+            BitField('Month', 4),
+            BitField('Day', 5),
+        );
+        $data->[$_]{'Last_Mod_File_Date'} = $convert->parse(CreateStreamReader($data->[$_]{'Last_Mod_File_Date'}));
+        $data->[$_]{'Last_Mod_File_Date'}{'Year'} = $data->[$_]{'Last_Mod_File_Date'}{'Year'} + 1980;
+    }
+}
+
+# Zip is little endian
+
+my $parser_end_central_directory_record = Struct('zip',
+    Const(Bytes('End_Of_Central_Dir_Signature', 4), "\x50\x4B\x05\x06"),
+    Anchor('Position'),
+    ULInt16('Number_Of_This_Disk'),
+    ULInt16('Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory'),
+    ULInt16('Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk'),
+    ULInt16('Total_Number_Of_Entries_In_The_Central_Directory'),
+    ULInt32('Size_Of_The_Central_Directory'),
+    ULInt32('Offset_Of_Start_Of_Central_Directory_With_Respect_To_The_Starting_Disk_Number'),
+    ULInt16('.ZIP_File_Comment_Length'),
+    Field('.ZIP_File_Comment', sub { $_->ctx->{'.ZIP_File_Comment_Length'} }),
+);
+
+seek $fh, -22, 2;
+my $stream = CreateStreamReader(File => $fh);
+my $number_of_files;
+my $pecdr = $parser_end_central_directory_record->parse($stream);
+&dissect($pecdr, 'ecdr');
+$number_of_files = $pecdr->{'Total_Number_Of_Entries_In_The_Central_Directory'},
+
+my $parser_local_file_header = Array($number_of_files,
+    Struct('zip',
+        Const(Bytes('Local_File_Header_Signature', 4), "\x50\x4B\x03\x04"),
+        Pointer( sub { 0 }, Bytes("\x50\x4B\x03\x04", 4)),
+        ULInt16('Version_Needed_To_Extract'),
+        ULInt16('General_Purpose_Bit_Flag'),
+        ULInt16('Compression_Method'),
+        ULInt16('Last_Mod_File_Time'),
+        ULInt16('Last_Mod_File_Date'),
+        ULInt32('CRC-32'),
+        ULInt32('Compressed_Size'),
+        ULInt32('Uncompressed_Size'),
+        ULInt16('Filename_Length'),
+        ULInt16('Extra_Field_Length'),
+        String('Filename', sub { $_->ctx->{'Filename_Length'} }),
+        Field('Extra_Field', sub { $_->ctx->{'Extra_Field_Length'} }),
+        # Add an array for header[] and data[]
+        Field('Compressed_Data', sub { $_->ctx->{'Compressed_Size'} }),
+        Anchor('Position'),
+    ),
+);
+
+my $parser_central_directory_record = Array($number_of_files,
+    Struct('zip',
+        Const(Bytes('Central_File_Header_Signature', 4), "\x50\x4B\x01\x02"),
+        Struct('Version_Made_By',
+            ULInt8('Specification'),
+            ULInt8('Compatibility'),
+        ),
+        ULInt16('Version_Needed_To_Extract'),
+        ULInt16('General_Purpose_Bit_Flag'),
+        ULInt16('Compression_Method'),
+        ULInt16('Last_Mod_File_Time'),
+        ULInt16('Last_Mod_File_Date'),
+        ULInt32('CRC-32'),
+        ULInt32('Compressed_Size'),
+        ULInt32('Uncompressed_Size'),
+        ULInt16('Filename_Length'),
+        ULInt16('Extra_Field_Length'),
+        ULInt16('File_Comment_Length'),
+        ULInt16('Disk_Number_Start'),
+        ULInt16('Internal_File_Attributes'),
+        ULInt32('External_File_Attributes'),
+        ULInt32('Relative_Offset_Of_Local_Header'),
+        String('Filename', sub { $_->ctx->{'Filename_Length'} }),
+        Field('Extra_Field', sub { $_->ctx->{'Extra_Field_Length'} }),
+        Field('File_Comment', sub { $_->ctx->{'File_Comment_Length'} }),
+    ),
+);
+
+seek $fh, 0, 0;
+$stream = CreateStreamReader(File => $fh);
+&dissect($parser_local_file_header->parse($stream), 'lfh');
+&dissect($parser_central_directory_record->parse($stream), 'cdr');

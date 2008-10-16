@@ -93,16 +93,63 @@ sub extra_field {
     my ( @header, @data );
 
     my %header_mappings = (
-        '0x5455' => 'extended timestamp',
+        '0001' => 'Zip64 extended information extra field',
+        '0007' => 'AV Info',
+        '0008' => 'Reserved for extended language encoding data (PFS)',
+        '0009' => 'OS/2',
+        '000a' => 'NTFS ',
+        '000c' => 'OpenVMS',
+        '000d' => 'UNIX',
+        '000e' => 'Reserved for file stream and fork descriptors',
+        '000f' => 'Patch Descriptor',
+        '0014' => 'PKCS#7 Store for X.509 Certificates',
+        '0015' => 'X.509 Certificate ID and Signature for individual file',
+        '0016' => 'X.509 Certificate ID for Central Directory',
+        '0017' => 'Strong Encryption Header',
+        '0018' => 'Record Management Controls',
+        '0019' => 'PKCS#7 Encryption Recipient Certificate List',
+        '0065' => 'IBM S/390 (Z390), AS/400 (I400) attributes - uncompressed',
+        '0066' => 'Reserved for IBM S/390 (Z390), AS/400 (I400) attributes - compressed',
+        '4690' => 'POSZIP 4690 (reserved) ',
+        '07c8' => 'Macintosh',
+        '2605' => 'ZipIt Macintosh',
+        '2705' => 'ZipIt Macintosh 1.3.5+',
+        '2805' => 'ZipIt Macintosh 1.3.5+',
+        '334d' => 'Info-ZIP Macintosh',
+        '4341' => 'Acorn/SparkFS ',
+        '4453' => 'Windows NT security descriptor (binary ACL)',
+        '4704' => 'VM/CMS',
+        '470f' => 'MVS',
+        '4b46' => 'FWKCS MD5 (see below)',
+        '4c41' => 'OS/2 access control list (text ACL)',
+        '4d49' => 'Info-ZIP OpenVMS',
+        '4f4c' => 'Xceed original location extra field',
+        '5356' => 'AOS/VS (ACL)',
+        '5455' => 'extended timestamp',
+        '554e' => 'Xceed unicode extra field',
+        '5855' => 'Info-ZIP UNIX (original, also OS/2, NT, etc)',
+        '6375' => 'Info-ZIP Unicode Comment Extra Field',
+        '6542' => 'BeOS/BeBox',
+        '7075' => 'Info-ZIP Unicode Path Extra Field',
+        '756e' => 'ASi UNIX',
+        '7855' => 'Info-ZIP UNIX (new)',
+        'a220' => 'Microsoft Open Packaging Growth Hint',
+        'fd4a' => 'SMS/QDOS',
     );
-    print %header_mappings;
 
     for( my $i = 0; $i < @$data; $i++ ) {
         if( exists $data->[$i]{'Extra_Field'} ) {
             for( my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4 ) {
-                #push @header, substr($data->[$i]{'Extra_Field'}, $j, 2);
-                push @header, unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j, 2)));
-                push @data, unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j + 2, 2)));
+                my $header = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j, 2)));
+                $header = substr($header, 2, 2) . substr($header, 0, 2);
+
+                if( exists $header_mappings{$header} ) {
+                    $header = $header_mappings{$header};
+                }
+
+                push @header, $header;
+                my $data = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j + 2, 2)));
+                push @data, substr($data, 2, 2) . substr($data, 0, 2);
             }
             $data->[$i]{'Extra_Field'} = {
                 Header => \@header,

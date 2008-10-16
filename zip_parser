@@ -92,6 +92,11 @@ sub extra_field {
     my $data = shift;
     my ( @header, @data );
 
+    my %header_mappings = (
+        '0x5455' => 'extended timestamp',
+    );
+    print %header_mappings;
+
     for( my $i = 0; $i < @$data; $i++ ) {
         if( exists $data->[$i]{'Extra_Field'} ) {
             for( my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4 ) {

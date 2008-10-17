@@ -5,7 +5,7 @@ use warnings;
 use Data::ParseBinary;
 use Data::Dumper;
 
-# Lacks the capability to parse Zip64 and encrypted .Zip files
+# *** Lacks the capability to parse Zip64 and encrypted .Zip files ***
 
 # Check if a file has been passed as an argument or not
 if( @ARGV == 0 ) {
@@ -22,17 +22,9 @@ open my $fh, '<', $filename or die 'can not open $filename';
 binmode $fh;
 
 # List the printables
-my @printable_local_file_header = qw(
-    Filename Version_Needed_To_Extract General_Purpose_Bit_Flag Compression_Method
-);
-
-my @printable_central_directory_record = qw(
-    Filename General_Purpose_Bit_Flag
-);
-
-my @printable_end_central_directory_record = qw(
-    Total_Number_Of_Entries_In_The_Central_Directory
-);
+my @printable_local_file_header            = do 'lfh.conf';
+my @printable_central_directory_record     = do 'cdr.conf';
+my @printable_end_central_directory_record = do 'ecdr.conf';
 
 sub printable {#{{{
     my ( $var, $header ) = @_;
@@ -70,6 +62,7 @@ sub dissect {#{{{
         map {
             if( &printable($_, $header) ) {
 
+                # Have to clean up the following, or maybe ponder of a better method
                 if( ref($temp{$_}) eq '' || ref($temp{$_}) eq 'SCALAR' ) { 
                     printf "%s -> \n\t%s\n", $_, $temp{$_}; 
                 } elsif( ref($temp{$_}) eq 'ARRAY' ) {
@@ -183,7 +176,6 @@ sub general_purpose_bit_flag {#{{{
         } else {
 
             if( $bit3 == 1 ) {
-
                 $data->[$i]{'CRC-32'           } = 0;
                 $data->[$i]{'Compressed_Size'  } = 0;
                 $data->[$i]{'Uncompressed_Size'} = 0;
@@ -214,13 +206,10 @@ sub general_purpose_bit_flag {#{{{
             push @general_purpose_bit_flag, 'Filename and comment fields for this file must be encoded using UTF-8' if $bit11 == 1;
             push @general_purpose_bit_flag, 'Enhanced compression'                                                  if $bit12 == 1;
             push @general_purpose_bit_flag, 'Selected data values in the Local Header are masked'                   if $bit13 == 1;
-
         }
 
         $data->[$i]{'General_Purpose_Bit_Flag'} = [ @general_purpose_bit_flag ];
-
     }
-
 }
 #}}}
 
@@ -228,58 +217,46 @@ sub version_needed_to_extract {#{{{
     my $data = shift;
 
     my %version_mappings = (
-
         '10' => 'Default value',
         '11' => 'File is a volume label',
-
         '20' => "File is a folder (directory)" .
                 "\n\tFile is compressed using Deflate compression" .
                 "\n\tFile is encrypted using traditional PKWARE encryption",
-
         '21' => 'File is compressed using Deflate64(tm)',
         '25' => 'File is compressed using PKWARE DCL Implode ',
         '27' => 'File is a patch data set ',
         '45' => 'File uses ZIP64 format extensions',
         '46' => 'File is compressed using BZIP2 compression*',
-
         '50' => "File is encrypted using DES" .
                 "\n\tFile is encrypted using 3DES" .
                 "\n\tFile is encrypted using original RC2 encryption" .
                 "\n\tFile is encrypted using RC4 encryption",
-
         '51' => "File is encrypted using AES encryption" .
                 "\n\tFile is encrypted using corrected RC2 encryption",
-
         '52' => 'File is encrypted using corrected RC2-64 encryption',
         '61' => 'File is encrypted using non-OAEP key wrapping',
         '62' => 'Central directory encryption',
-
         '63' => "File is compressed using LZMA" .
                 "\n\tFile is compressed using PPMd" .
                 "\n\tFile is encrypted using Blowfish" .
                 "\n\tFile is encrypted using Twofish",
-
     );
 
     for( my $i = 0; $i < @$data; $i++ ) {
-
         exists $data->[$i]{'Version_Needed_To_Extract'}
             or die " Version_Needed_To_Extract is not present\n";
         exists $version_mappings{ $data->[$i]{'Version_Needed_To_Extract'} }
             or die " Version_Needed_To_Extract has an illegal value\n";
 
-        $data->[$i]{'Version_Needed_To_Extract'} = 
-            $version_mappings{ $data->[$i]{'Version_Needed_To_Extract'} },
-        ;
-
+        $data->[$i]{'Version_Needed_To_Extract'} = $version_mappings{ $data->[$i]{'Version_Needed_To_Extract'} };
     }
-
 }
 #}}}
 
 sub extra_field {#{{{
     my $data = shift;
     my ( @header, @data );
+
     my %header_mappings = (
         '0001' => 'Zip64 extended information extra field',
         '0007' => 'AV Info',
@@ -328,9 +305,7 @@ sub extra_field {#{{{
     for( my $i = 0; $i < @$data; $i++ ) {
 
         if( exists $data->[$i]{'Extra_Field'} ) {
-
             for( my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4 ) {
-
                 my $header = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j, 2)));
                 $header    = substr($header, 2, 2) . substr($header, 0, 2);
                 $header    = $header_mappings{$header} if exists $header_mappings{$header};
@@ -338,21 +313,22 @@ sub extra_field {#{{{
 
                 my $data = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j + 2, 2)));
                 push @data, substr($data, 2, 2) . substr($data, 0, 2);
-
             }
-
             $data->[$i]{'Extra_Field'} = {
                 Header => \@header,
                 Data   => \@data,
             };
         }
+
     }
 }
 #}}}
 
 sub mod_file_date_time {#{{{
     my $data = shift;
+
     for( 0 .. @$data - 1 ) {
+
         # Convert Last Mod File Time to Hour, Minute and Second
         $data->[$_]{'Last_Mod_File_Time'} = pack('n', $data->[$_]{'Last_Mod_File_Time'});
         my $convert = BitStruct('Last_Mod_File_Time',
@@ -361,6 +337,7 @@ sub mod_file_date_time {#{{{
             BitField('Second', 5),
         );
         $data->[$_]{'Last_Mod_File_Time'} = $convert->parse(CreateStreamReader($data->[$_]{'Last_Mod_File_Time'}));
+
         # Convert Last Mod File Date to Year, Month and Day
         $data->[$_]{'Last_Mod_File_Date'} = pack('n', $data->[$_]{'Last_Mod_File_Date'});
         $convert = BitStruct('Last Mod File Date',
@@ -370,6 +347,7 @@ sub mod_file_date_time {#{{{
         );
         $data->[$_]{'Last_Mod_File_Date'} = $convert->parse(CreateStreamReader($data->[$_]{'Last_Mod_File_Date'}));
         $data->[$_]{'Last_Mod_File_Date'}{'Year'} = $data->[$_]{'Last_Mod_File_Date'}{'Year'} + 1980;
+
     }
 }
 #}}}
@@ -430,9 +408,9 @@ my $parser_local_file_header = Array($number_of_files,
         ULInt32('Uncompressed_Size' ),
         ULInt16('Filename_Length'   ),
         ULInt16('Extra_Field_Length'),
-        String('Filename'       , sub { $_->ctx->{'Filename_Length'   } }),
-        Field ('Extra_Field'    , sub { $_->ctx->{'Extra_Field_Length'} }),
-        Field ('Compressed_Data', sub { $_->ctx->{'Compressed_Size'   } }),
+        String ('Filename'       , sub { $_->ctx->{'Filename_Length'   } }),
+        Field  ('Extra_Field'    , sub { $_->ctx->{'Extra_Field_Length'} }),
+        Field  ('Compressed_Data', sub { $_->ctx->{'Compressed_Size'   } }),
         If(sub { $_->ctx->{'General_Purpose_Bit_Flag'}->{'Bit3'} },
             Struct('Data_Descriptor',
                 ULInt32('CRC-32'           ),
@@ -482,9 +460,9 @@ my $parser_central_directory_record = Array($number_of_files,
         ULInt16('Internal_File_Attributes'       ),
         ULInt32('External_File_Attributes'       ),
         ULInt32('Relative_Offset_Of_Local_Header'),
-        String('Filename'    , sub { $_->ctx->{'Filename_Length'    } }),
-        Field ('Extra_Field' , sub { $_->ctx->{'Extra_Field_Length' } }),
-        Field ('File_Comment', sub { $_->ctx->{'File_Comment_Length'} }),
+        String ('Filename'    , sub { $_->ctx->{'Filename_Length'    } }),
+        Field  ('Extra_Field' , sub { $_->ctx->{'Extra_Field_Length' } }),
+        Field  ('File_Comment', sub { $_->ctx->{'File_Comment_Length'} }),
     ),
 );
 

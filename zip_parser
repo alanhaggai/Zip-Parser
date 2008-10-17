@@ -54,6 +54,7 @@ sub dissect {#{{{
         &compression_method       ($data);
         &general_purpose_bit_flag ($data);
         &version_needed_to_extract($data);
+        &crc32                    ($data);
     } else { $data = [$data] }
 
     for( @$data ) {
@@ -90,6 +91,14 @@ sub dissect {#{{{
     }
 }
 #}}}
+
+sub crc32 {#{{{
+    my $data = shift;
+
+    for( my $i = 0; $i < @$data; $i++ ) {
+        $data->[$i]{'CRC-32'} = unpack 'H*', (pack 'N', $data->[$i]{'CRC-32'});
+    }
+}#}}}
 
 sub compression_method {#{{{
     my $data = shift;

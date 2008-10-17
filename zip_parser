@@ -5,21 +5,25 @@ use warnings;
 use Data::ParseBinary;
 use Data::Dumper;
 
+# Lacks the capability to parse Zip64 and encrypted .Zip files
+
 # Check if a file has been passed as an argument or not
 if( @ARGV == 0 ) {
     print " No .zip file has been passed.\n";
     exit;
 }
 
+# Slurp!
 undef $/;
 
+# Open the file and get filehandle
 my $filename = shift;
 open my $fh, '<', $filename or die 'can not open $filename';
 binmode $fh;
 
-
+# List the printables
 my @printable_local_file_header = qw(
-    Filename Version_Needed_To_Extract General_Purpose_Bit_Flag Compression_Method 
+    Filename Version_Needed_To_Extract General_Purpose_Bit_Flag Compression_Method
 );
 
 my @printable_central_directory_record = qw(
@@ -34,17 +38,12 @@ sub printable {#{{{
     my ( $var, $header ) = @_;
     my @printable;
 
-    if( $header eq 'lfh' ) {
-        @printable = @printable_local_file_header;
-    } elsif( $header eq 'cdr' ) {
-        @printable = @printable_central_directory_record;
-    } elsif( $header eq 'ecdr' ) {
-        @printable = @printable_end_central_directory_record;
-    }
+    if   ( $header eq 'lfh'  ) { @printable = @printable_local_file_header            }
+    elsif( $header eq 'cdr'  ) { @printable = @printable_central_directory_record     }
+    elsif( $header eq 'ecdr' ) { @printable = @printable_end_central_directory_record }
 
-    for( @printable ) {
-        return 1 if($var eq $_);
-    }
+    map { return 1 if($var eq $_) } @printable;
+
     return 0;
 }
 #}}}
@@ -58,55 +57,40 @@ sub dissect {#{{{
     elsif( $header eq 'ecdr' ) { print "\tEND CENTRAL DIRECTORY RECORD\n", '-' x 50, "\n\n" } 
 
     if( $header eq 'lfh' || $header eq 'cdr' ) {
-
         &mod_file_date_time       ($data);
         &extra_field              ($data);
         &compression_method       ($data);
         &general_purpose_bit_flag ($data);
         &version_needed_to_extract($data);
-
     } else { $data = [$data] }
 
     for( @$data ) {
-
         my %temp = %$_;
     
         map {
-
             if( &printable($_, $header) ) {
 
                 if( ref($temp{$_}) eq '' || ref($temp{$_}) eq 'SCALAR' ) { 
-
-                    printf "%s -> \n\t%s\n", $_, $temp{$_} 
-
+                    printf "%s -> \n\t%s\n", $_, $temp{$_}; 
                 } elsif( ref($temp{$_}) eq 'ARRAY' ) {
-
                     printf "%s ->", $_;
                     map print("\n\t$_"), @{ $temp{$_} };
                     print "\n";
-
-                } elsif( ref($temp{$_} eq 'HASH') ) {
-
+                } elsif( ref($temp{$_}) eq 'HASH' ) {
                     printf "%s ->", $_;
-
                     my %hash = %{$temp{$_}};
 
                     map {
-
                         if( ref($hash{$_}) eq 'ARRAY' ) {
-
                             printf "\n%s ->", $_;
                             map print("\n\t$_"), @{ $hash{$_} };
-
                         } else { printf "\n%s -> %s", $_, $hash{$_} }
-
                     } keys %hash;
 
                     print "\n";
                 }
 
             }
-
         } keys %temp;
 
         print "\n\n";
@@ -118,12 +102,10 @@ sub compression_method {#{{{
     my $data = shift;
 
     for( my $i = 0; $i < @$data; $i++ ) {
-
         exists $data->[$i]{'Compression_Method'}
             or die " Compression_Method is not present\n";
 
         my %compression_method = (
-
             '0'  => 'The file is stored (no compression)',
             '1'  => 'The file is Shrunk',
             '2'  => 'The file is Reduced with compression factor 1',
@@ -146,22 +128,18 @@ sub compression_method {#{{{
             '19' => 'IBM LZ77 z Architecture (PFS)',
             '97' => 'WavPack compressed data',
             '98' => 'PPMd version I, Rev 1',
-
         );
 
         $data->[$i]{'Compression_Method'} = $compression_method{ $data->[$i]{'Compression_Method'} };
-
     }
 
 }
 #}}}
 
 sub general_purpose_bit_flag {#{{{
-
     my $data = shift;
 
     for( my $i = 0; $i < @$data; $i++ ) {
-
         exists $data->[$i]{'General_Purpose_Bit_Flag'}
             or die " General_Purpose_Bit_Flag is not present\n";
 
@@ -177,7 +155,6 @@ sub general_purpose_bit_flag {#{{{
         my $bit13 = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit13'};
 
         my @general_purpose_bit_flag;
-
         push @general_purpose_bit_flag, 'File is encrypted'                              if $bit0 == 1;
 
         if( $data->[$i]{'Compression_Method'} eq 'The file is Imploded' ) {
@@ -241,7 +218,6 @@ sub general_purpose_bit_flag {#{{{
         }
 
         $data->[$i]{'General_Purpose_Bit_Flag'} = [ @general_purpose_bit_flag ];
-        
 
     }
 
@@ -401,52 +377,38 @@ sub mod_file_date_time {#{{{
 # Zip is little endian
 
 my $parser_end_central_directory_record = Struct('zip',
-
     Const(
         Bytes('End_Of_Central_Dir_Signature', 4), "\x50\x4B\x05\x06"
     ),
-
     Anchor('Position'),
-
     ULInt16('Number_Of_This_Disk'                                                          ),
     ULInt16('Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory'                   ),
     ULInt16('Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk'                ),
     ULInt16('Total_Number_Of_Entries_In_The_Central_Directory'                             ),
-
     ULInt32('Size_Of_The_Central_Directory'                                                ),
     ULInt32('Offset_Of_Start_Of_Central_Directory_With_Respect_To_The_Starting_Disk_Number'),
-
     ULInt16('.ZIP_File_Comment_Length'                                                     ),
-
     Field('.ZIP_File_Comment', sub { $_->ctx->{'.ZIP_File_Comment_Length'} }),
-
 );
 
 seek $fh, -22, 2;
 
 my $number_of_files;
 my $stream = CreateStreamReader(File => $fh);
-my $pecdr = $parser_end_central_directory_record->parse($stream);
+my $pecdr  = $parser_end_central_directory_record->parse($stream);
 
 &dissect($pecdr, 'ecdr');
-$number_of_files = $pecdr->{'Total_Number_Of_Entries_In_The_Central_Directory'},
+$number_of_files = $pecdr->{'Total_Number_Of_Entries_In_The_Central_Directory'};
 
 my $parser_local_file_header = Array($number_of_files,
-
     Struct('zip',
-
         Const(
             Bytes('Local_File_Header_Signature', 4), "\x50\x4B\x03\x04"
         ),
-        
         Pointer( sub { 0 }, Bytes("\x50\x4B\x03\x04", 4)),
-
         ULInt16('Version_Needed_To_Extract'),
-
         BitStruct('General_Purpose_Bit_Flag',
-
             Padding(1),
-
             Flag('Bit6' ),
             Flag('Bit5' ),
             Flag('Bit4' ),
@@ -454,58 +416,46 @@ my $parser_local_file_header = Array($number_of_files,
             Flag('Bit2' ),
             Flag('Bit1' ),
             Flag('Bit0' ),
-
             Padding(2),
-
             Flag('Bit13'),
             Flag('Bit12'),
             Flag('Bit11'),
-
             Padding(3),
-
         ),
-
         ULInt16('Compression_Method'),
         ULInt16('Last_Mod_File_Time'),
         ULInt16('Last_Mod_File_Date'),
-
         ULInt32('CRC-32'            ),
         ULInt32('Compressed_Size'   ),
         ULInt32('Uncompressed_Size' ),
-
         ULInt16('Filename_Length'   ),
         ULInt16('Extra_Field_Length'),
-
-        String('Filename'      , sub { $_->ctx->{'Filename_Length'   } }),
-
-        Field('Extra_Field'    , sub { $_->ctx->{'Extra_Field_Length'} }),
-        Field('Compressed_Data', sub { $_->ctx->{'Compressed_Size'   } }),
-
+        String('Filename'       , sub { $_->ctx->{'Filename_Length'   } }),
+        Field ('Extra_Field'    , sub { $_->ctx->{'Extra_Field_Length'} }),
+        Field ('Compressed_Data', sub { $_->ctx->{'Compressed_Size'   } }),
+        If(sub { $_->ctx->{'General_Purpose_Bit_Flag'}->{'Bit3'} },
+            Struct('Data_Descriptor',
+                ULInt32('CRC-32'           ),
+                ULInt32('Compressed_Size'  ),
+                ULInt32('Uncompressed_Size'),
+            ),
+        ),
         Anchor('Position'),
-
     ),
-
 );
 
 my $parser_central_directory_record = Array($number_of_files,
-
     Struct('zip',
-
         Const(
             Bytes('Central_File_Header_Signature', 4), "\x50\x4B\x01\x02"
         ),
-
         Struct('Version_Made_By',
             ULInt8('Specification'),
             ULInt8('Compatibility'),
         ),
-
         ULInt16('Version_Needed_To_Extract'),
-
         BitStruct('General_Purpose_Bit_Flag',
-
-            Padding(1),
-
+            Padding(1   ),
             Flag('Bit6' ),
             Flag('Bit5' ),
             Flag('Bit4' ),
@@ -513,45 +463,33 @@ my $parser_central_directory_record = Array($number_of_files,
             Flag('Bit2' ),
             Flag('Bit1' ),
             Flag('Bit0' ),
-
-            Padding(2),
-
+            Padding(2   ),
             Flag('Bit13'),
             Flag('Bit12'),
             Flag('Bit11'),
-
-            Padding(3),
-
+            Padding(3   ),
         ),
-
         ULInt16('Compression_Method'             ),
         ULInt16('Last_Mod_File_Time'             ),
         ULInt16('Last_Mod_File_Date'             ),
-
         ULInt32('CRC-32'                         ),
         ULInt32('Compressed_Size'                ),
         ULInt32('Uncompressed_Size'              ),
-
         ULInt16('Filename_Length'                ),
         ULInt16('Extra_Field_Length'             ),
         ULInt16('File_Comment_Length'            ),
         ULInt16('Disk_Number_Start'              ),
         ULInt16('Internal_File_Attributes'       ),
-
         ULInt32('External_File_Attributes'       ),
         ULInt32('Relative_Offset_Of_Local_Header'),
-
-        String('Filename'   , sub { $_->ctx->{'Filename_Length'    } }),
-
-        Field('Extra_Field' , sub { $_->ctx->{'Extra_Field_Length' } }),
-        Field('File_Comment', sub { $_->ctx->{'File_Comment_Length'} }),
-
+        String('Filename'    , sub { $_->ctx->{'Filename_Length'    } }),
+        Field ('Extra_Field' , sub { $_->ctx->{'Extra_Field_Length' } }),
+        Field ('File_Comment', sub { $_->ctx->{'File_Comment_Length'} }),
     ),
-
 );
 
 seek $fh, 0, 0;
 $stream = CreateStreamReader(File => $fh);
-&dissect($parser_local_file_header->parse($stream), 'lfh');
-#print Dumper $parser_local_file_header->parse($stream);
+
+&dissect(       $parser_local_file_header->parse($stream), 'lfh');
 &dissect($parser_central_directory_record->parse($stream), 'cdr');

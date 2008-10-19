@@ -8,10 +8,7 @@ use Data::Dumper;
 # *** Lacks the capability to parse Zip64 and encrypted .Zip files ***
 
 # Check if a file has been passed as an argument or not
-if( @ARGV == 0 ) {
-    print " No .zip file has been passed.\n";
-    exit;
-}
+die "usage: $0 zipfile\n" if @ARGV == 0;
 
 # Slurp!
 undef $/;
@@ -27,12 +24,12 @@ my @printable_central_directory_record     = do 'cdr.conf';
 my @printable_end_central_directory_record = do 'ecdr.conf';
 
 sub printable {#{{{
-    my ( $var, $header ) = @_;
+    my ($var, $header) = @_;
     my @printable;
 
-    if   ( $header eq 'lfh'  ) { @printable = @printable_local_file_header            }
-    elsif( $header eq 'cdr'  ) { @printable = @printable_central_directory_record     }
-    elsif( $header eq 'ecdr' ) { @printable = @printable_end_central_directory_record }
+    if    ($header eq 'lfh' ) { @printable = @printable_local_file_header            }
+    elsif ($header eq 'cdr' ) { @printable = @printable_central_directory_record     }
+    elsif ($header eq 'ecdr') { @printable = @printable_end_central_directory_record }
 
     map { return 1 if($var eq $_) } @printable;
 
@@ -42,48 +39,45 @@ sub printable {#{{{
 
 sub dissect {#{{{
 
-    my ( $data, $header ) = @_;
+    my ($data, $header) = @_;
 
-    if   ( $header eq 'lfh'  ) { print "\tLOCAL FILE HEADER\n"           , '-' x 50, "\n\n" }
-    elsif( $header eq 'cdr'  ) { print "\tCENTRAL DIRECTORY RECORD\n"    , '-' x 50, "\n\n" }
-    elsif( $header eq 'ecdr' ) { print "\tEND CENTRAL DIRECTORY RECORD\n", '-' x 50, "\n\n" } 
+    if    ($header eq 'lfh' ) { print "\tLOCAL FILE HEADER\n"           , '-' x 50, "\n\n" }
+    elsif ($header eq 'cdr' ) { print "\tCENTRAL DIRECTORY RECORD\n"    , '-' x 50, "\n\n" }
+    elsif ($header eq 'ecdr') { print "\tEND CENTRAL DIRECTORY RECORD\n", '-' x 50, "\n\n" } 
 
-    if( $header eq 'lfh' || $header eq 'cdr' ) {
+    if ($header eq 'lfh' || $header eq 'cdr') {
         &mod_file_date_time       ($data);
         &extra_field              ($data);
         &compression_method       ($data);
         &general_purpose_bit_flag ($data);
         &version_needed_to_extract($data);
         &crc32                    ($data);
+        &data_descriptor          ($data);
     } else { $data = [$data] }
 
     for( @$data ) {
         my %temp = %$_;
     
         map {
-            if( &printable($_, $header) ) {
-
+            if (&printable($_, $header)) {
                 # Have to clean up the following, or maybe ponder of a better method
-                if( ref($temp{$_}) eq '' || ref($temp{$_}) eq 'SCALAR' ) { 
+                if (ref($temp{$_}) eq '' || ref($temp{$_}) eq 'SCALAR') { 
                     printf "%s -> \n\t%s\n", $_, $temp{$_}; 
-                } elsif( ref($temp{$_}) eq 'ARRAY' ) {
+                } elsif (ref($temp{$_}) eq 'ARRAY') {
                     printf "%s ->", $_;
                     map print("\n\t$_"), @{ $temp{$_} };
                     print "\n";
-                } elsif( ref($temp{$_}) eq 'HASH' ) {
+                } elsif (ref($temp{$_}) eq 'HASH') {
                     printf "%s ->", $_;
                     my %hash = %{$temp{$_}};
-
                     map {
-                        if( ref($hash{$_}) eq 'ARRAY' ) {
+                        if (ref($hash{$_}) eq 'ARRAY') {
                             printf "\n%s ->", $_;
                             map print("\n\t$_"), @{ $hash{$_} };
                         } else { printf "\n%s -> %s", $_, $hash{$_} }
                     } keys %hash;
-
                     print "\n";
                 }
-
             }
         } keys %temp;
 
@@ -92,10 +86,25 @@ sub dissect {#{{{
 }
 #}}}
 
+sub data_descriptor {
+    my $data = shift;
+
+    for (my $i = 0; $i < @$data; $i++) {
+        #unless (${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit13'}) {
+        #    ${$data->[$i]{'Data_Descriptor'}} = {};
+        #}
+        if (ref $data->[$i]{'General_Purpose_Bit_Flag'} eq 'ARRAY') {
+            ${$data->[$i]{'Data_Descriptor'}} = {};
+        } else {
+            ${$data->[$i]{'Data_Descriptor'}} = '';
+        }
+    }
+}
+
 sub crc32 {#{{{
     my $data = shift;
 
-    for( my $i = 0; $i < @$data; $i++ ) {
+    for (my $i = 0; $i < @$data; $i++) {
         $data->[$i]{'CRC-32'} = unpack 'H*', (pack 'N', $data->[$i]{'CRC-32'});
     }
 }#}}}
@@ -103,7 +112,7 @@ sub crc32 {#{{{
 sub compression_method {#{{{
     my $data = shift;
 
-    for( my $i = 0; $i < @$data; $i++ ) {
+    for (my $i = 0; $i < @$data; $i++) {
         exists $data->[$i]{'Compression_Method'}
             or die " Compression_Method is not present\n";
 
@@ -141,7 +150,7 @@ sub compression_method {#{{{
 sub general_purpose_bit_flag {#{{{
     my $data = shift;
 
-    for( my $i = 0; $i < @$data; $i++ ) {
+    for (my $i = 0; $i < @$data; $i++) {
         exists $data->[$i]{'General_Purpose_Bit_Flag'}
             or die " General_Purpose_Bit_Flag is not present\n";
 
@@ -159,32 +168,25 @@ sub general_purpose_bit_flag {#{{{
         my @general_purpose_bit_flag;
         push @general_purpose_bit_flag, 'File is encrypted'                              if $bit0 == 1;
 
-        if( $data->[$i]{'Compression_Method'} eq 'The file is Imploded' ) {
-
-            if( $bit1 == 1 ) { push @general_purpose_bit_flag, '8K sliding dictionary'                                                  }
-            else             { push @general_purpose_bit_flag, '4K sliding dictionary'                                                  }
-            if( $bit2 == 1 ) { push @general_purpose_bit_flag, '3 Shannon-Fano trees were used to encode the sliding dictionary output' }
-            else             { push @general_purpose_bit_flag, '2 Shannon-Fano trees were used to encode the sliding dictionary output' }
-
-        } elsif( $data->[$i]{'Compression_Method'} eq 'The file is Deflated' ||
-                 $data->[$i]{'Compression_Method'} eq 'Enhanced Deflating using Deflate64(tm)' ) {
-
+        if ($data->[$i]{'Compression_Method'} eq 'The file is Imploded') {
+            if ($bit1 == 1) { push @general_purpose_bit_flag, '8K sliding dictionary'                                                  }
+            else            { push @general_purpose_bit_flag, '4K sliding dictionary'                                                  }
+            if ($bit2 == 1) { push @general_purpose_bit_flag, '3 Shannon-Fano trees were used to encode the sliding dictionary output' }
+            else            { push @general_purpose_bit_flag, '2 Shannon-Fano trees were used to encode the sliding dictionary output' }
+        } elsif ($data->[$i]{'Compression_Method'} eq 'The file is Deflated' ||
+                 $data->[$i]{'Compression_Method'} eq 'Enhanced Deflating using Deflate64(tm)') {
             push @general_purpose_bit_flag, 'Normal (-en) compression option was used'       if $bit2 == 0 && $bit1 == 0;
             push @general_purpose_bit_flag, 'Maximum (-exx/-ex) compression option was used' if $bit2 == 0 && $bit1 == 1;
             push @general_purpose_bit_flag, 'Fast (-ef) compression option was used'         if $bit2 == 1 && $bit1 == 0;
             push @general_purpose_bit_flag, 'Super Fast (-es) compression option was used'   if $bit2 == 1 && $bit1 == 1;
-
         } elsif( $data->[$i]{'Compression_Method'} eq 'LZMA (EFS)' ) {
-
-            if( $bit1 == 1 ) {
+            if ($bit1 == 1) {
                 push @general_purpose_bit_flag, 'End-of-stream (EOS) marker is used to mark the end of the compressed data stream';
             } else {
                 push @general_purpose_bit_flag, 'End-of-stream (EOS) marker is not present and the compressed data size must be known to extract';
             }
-
         } else {
-
-            if( $bit3 == 1 ) {
+            if ($bit3 == 1) {
                 $data->[$i]{'CRC-32'           } = 0;
                 $data->[$i]{'Compressed_Size'  } = 0;
                 $data->[$i]{'Uncompressed_Size'} = 0;
@@ -192,23 +194,23 @@ sub general_purpose_bit_flag {#{{{
                 push @general_purpose_bit_flag, 'Data Descriptor contains CRC-32, Compressed_Size and Uncompressed_Size';
             }
 
-            if( $bit4 == 1 && $data->[$i]{'Compression_Method'} eq 'The file is Deflated' ) {
+            if ($bit4 == 1 && $data->[$i]{'Compression_Method'} eq 'The file is Deflated') {
                 push @general_purpose_bit_flag, 'Enhanced deflating';
-            } elsif( $bit4 == 1 && $data->[$i]{'Compression_Method'} ne 'The file is Deflated' ) {
+            } elsif ($bit4 == 1 && $data->[$i]{'Compression_Method'} ne 'The file is Deflated') {
                 die ' Enhanced deflating cannot be done on a file that is not deflated';
             }
 
-            if( $bit5 == 1 && $data->[$i]{'Version_Needed_To_Extract'} >= 27 ) {
+            if ($bit5 == 1 && $data->[$i]{'Version_Needed_To_Extract'} >= 27) {
                 push @general_purpose_bit_flag, 'Compressed patched data'
-            } elsif( $bit5 == 1 ) {
+            } elsif ($bit5 == 1) {
                 die ' Incompatible Version_Needed_To_Extract for patched compressed data';
             }
 
-            if( $bit6 == 1 && $data->[$i]{'Version_Needed_To_Extract'} >= 50 && $bit0 == 1 ) {
+            if ($bit6 == 1 && $data->[$i]{'Version_Needed_To_Extract'} >= 50 && $bit0 == 1) {
                 push @general_purpose_bit_flag, 'Strong encryption'
-            } elsif( $bit6 == 1 && $data->[$i]{'Version_Needed_To_Extract'} < 50 && $bit0 == 1 ) { 
+            } elsif ($bit6 == 1 && $data->[$i]{'Version_Needed_To_Extract'} < 50 && $bit0 == 1) { 
                 die ' Incompatible Version_Needed_To_Extract for strong encryption';
-            } elsif( $bit6 == 1 && $bit0 == 0 ) { 
+            } elsif ($bit6 == 1 && $bit0 == 0) { 
                 die ' Non-encrypted file cannot be strong encrypted';
             }
 
@@ -251,7 +253,7 @@ sub version_needed_to_extract {#{{{
                 "\n\tFile is encrypted using Twofish",
     );
 
-    for( my $i = 0; $i < @$data; $i++ ) {
+    for (my $i = 0; $i < @$data; $i++) {
         exists $data->[$i]{'Version_Needed_To_Extract'}
             or die " Version_Needed_To_Extract is not present\n";
         exists $version_mappings{ $data->[$i]{'Version_Needed_To_Extract'} }
@@ -264,7 +266,7 @@ sub version_needed_to_extract {#{{{
 
 sub extra_field {#{{{
     my $data = shift;
-    my ( @header, @data );
+    my  (@header, @data);
 
     my %header_mappings = (
         '0001' => 'Zip64 extended information extra field',
@@ -311,10 +313,9 @@ sub extra_field {#{{{
         'fd4a' => 'SMS/QDOS',
     );
 
-    for( my $i = 0; $i < @$data; $i++ ) {
-
-        if( exists $data->[$i]{'Extra_Field'} ) {
-            for( my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4 ) {
+    for (my $i = 0; $i < @$data; $i++) {
+        if (exists $data->[$i]{'Extra_Field'}) {
+            for (my $j = 0; $j < length $data->[$i]{'Extra_Field'}; $j += 4) {
                 my $header = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j, 2)));
                 $header    = substr($header, 2, 2) . substr($header, 0, 2);
                 $header    = $header_mappings{$header} if exists $header_mappings{$header};
@@ -323,12 +324,12 @@ sub extra_field {#{{{
                 my $data = unpack("H4", pack('Z*', substr($data->[$i]{'Extra_Field'}, $j + 2, 2)));
                 push @data, substr($data, 2, 2) . substr($data, 0, 2);
             }
+
             $data->[$i]{'Extra_Field'} = {
                 Header => \@header,
                 Data   => \@data,
             };
         }
-
     }
 }
 #}}}
@@ -336,8 +337,7 @@ sub extra_field {#{{{
 sub mod_file_date_time {#{{{
     my $data = shift;
 
-    for( 0 .. @$data - 1 ) {
-
+    for (0 .. @$data - 1) {
         # Convert Last Mod File Time to Hour, Minute and Second
         $data->[$_]{'Last_Mod_File_Time'} = pack('n', $data->[$_]{'Last_Mod_File_Time'});
         my $convert = BitStruct('Last_Mod_File_Time',
@@ -356,7 +356,6 @@ sub mod_file_date_time {#{{{
         );
         $data->[$_]{'Last_Mod_File_Date'} = $convert->parse(CreateStreamReader($data->[$_]{'Last_Mod_File_Date'}));
         $data->[$_]{'Last_Mod_File_Date'}{'Year'} = $data->[$_]{'Last_Mod_File_Date'}{'Year'} + 1980;
-
     }
 }
 #}}}
@@ -477,6 +476,5 @@ my $parser_central_directory_record = Array($number_of_files,
 
 seek $fh, 0, 0;
 $stream = CreateStreamReader(File => $fh);
-
-&dissect(       $parser_local_file_header->parse($stream), 'lfh');
+&dissect($parser_local_file_header->parse($stream)       , 'lfh');
 &dissect($parser_central_directory_record->parse($stream), 'cdr');

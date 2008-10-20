@@ -8,7 +8,7 @@ use Data::Dumper;
 # *** Lacks the capability to parse Zip64 and encrypted .Zip files ***
 
 # Check if a file has been passed as an argument or not
-die "usage: $0 zipfile\n" if @ARGV == 0;
+die "Usage: $0 zipfile\n" if @ARGV == 0;
 
 # Slurp!
 undef $/;
@@ -19,10 +19,9 @@ open my $fh, '<', $filename
     or die 'can not open $filename';
 binmode $fh;
 
-# List the printables
-my @printable_local_file_header            = do 'lfh.conf';
-my @printable_central_directory_record     = do 'cdr.conf';
-my @printable_end_central_directory_record = do 'ecdr.conf';
+my ($printable_local_file_header, $printable_central_directory_record,
+    $printable_end_central_directory_record) =
+    do 'zip_parser.conf';
 
 sub printable
 {#{{{
@@ -30,19 +29,19 @@ sub printable
     my @printable;
     if ($header eq 'lfh' )
     {
-        @printable = @printable_local_file_header
+        @printable = @{ $printable_local_file_header }
     }
     elsif ($header eq 'cdr' )
     {
-        @printable = @printable_central_directory_record
+        @printable = @{ $printable_central_directory_record }
     }
     elsif ($header eq 'ecdr')
     {
-        @printable = @printable_end_central_directory_record
+        @printable = @{ $printable_end_central_directory_record }
     }
     map
     {
-        return 1 if($var eq $_)
+        return 1 if $var eq $_
     } @printable;
 
     return 0;
@@ -180,22 +179,23 @@ sub compression_method
     }
 }#}}}
 
-sub general_purpose_bit_flag {#{{{
+sub general_purpose_bit_flag
+{#{{{
     my $data = shift;
     for (my $i = 0; $i < @$data; $i++)
     {
         exists $data->[$i]{'General_Purpose_Bit_Flag'}
             or die " General_Purpose_Bit_Flag is not present\n";
-        my $bit0  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit0' };
-        my $bit1  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit1' };
-        my $bit2  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit2' };
-        my $bit3  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit3' };
-        my $bit4  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit4' };
-        my $bit5  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit5' };
-        my $bit6  = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit6' };
-        my $bit11 = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit11'};
-        my $bit12 = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit12'};
-        my $bit13 = ${$data->[$i]{'General_Purpose_Bit_Flag'}}{'Bit13'};
+        my $bit0  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit0' };
+        my $bit1  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit1' };
+        my $bit2  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit2' };
+        my $bit3  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit3' };
+        my $bit4  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit4' };
+        my $bit5  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit5' };
+        my $bit6  = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit6' };
+        my $bit11 = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit11'};
+        my $bit12 = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit12'};
+        my $bit13 = ${ $data->[$i]{'General_Purpose_Bit_Flag'} }{'Bit13'};
         my @general_purpose_bit_flag;
         push @general_purpose_bit_flag, 'File is encrypted' if $bit0 == 1;
         if ($data->[$i]{'Compression_Method'} eq 'The file is Imploded')

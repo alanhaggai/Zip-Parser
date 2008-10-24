@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use Data::ParseBinary;
 use Data::Dumper;
+use Cwd;
+use File::Spec;
 
 # *** Lacks the capability to parse Zip64 and encrypted .Zip files ***
 
@@ -21,7 +23,7 @@ binmode $fh;
 
 my ($printable_local_file_header, $printable_central_directory_record,
     $printable_end_central_directory_record) =
-    do 'zip_parser.conf';
+    do "$0.conf";
 
 sub printable
 {#{{{

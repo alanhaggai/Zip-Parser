@@ -72,6 +72,7 @@ sub dissect
         &general_purpose_bit_flag ($data);
         &version_needed_to_extract($data);
         &crc32                    ($data);
+        &external_file_attributes ($data);
         &data_descriptor          ($data);
     }
     else
@@ -142,6 +143,15 @@ sub crc32
     for (my $i = 0; $i < @$data; $i++)
     {
         $data->[$i]{'CRC-32'} = unpack 'H*', (pack 'N', $data->[$i]{'CRC-32'});
+    }
+}#}}}
+
+sub external_file_attributes
+{#{{{
+    my $data = shift;
+    for (my $i = 0; $i < @$data; $i++)
+    {
+        $data->[$i]{'External_File_Attributes'} = unpack 'H*', (pack 'N', $data->[$i]{'External_File_Attributes'});
     }
 }#}}}
 
@@ -433,7 +443,6 @@ my $parser_end_central_directory_record =
         (
             Bytes('End_Of_Central_Dir_Signature', 4), "\x50\x4B\x05\x06"
         ),
-        Anchor('Position'),
         ULInt16('Number_Of_This_Disk'                                                          ),
         ULInt16('Number_Of_The_Disk_With_The_Start_Of_The_Central_Directory'                   ),
         ULInt16('Total_Number_Of_Entries_In_The_Central_Directory_On_This_Disk'                ),
@@ -528,6 +537,7 @@ my $parser_local_file_header =
                     $_->ctx->{'Extra_Field_Length'}
                 }
             ),
+            Anchor('Position'),
             Field
             (
                 'Compressed_Data',
@@ -536,21 +546,6 @@ my $parser_local_file_header =
                     $_->ctx->{'Compressed_Size'}
                 }
             ),
-            If
-            (
-                sub
-                {
-                    $_->ctx->{'General_Purpose_Bit_Flag'}->{'Bit3'}
-                },
-                Struct
-                (
-                    'Data_Descriptor',
-                    ULInt32('CRC-32'           ),
-                    ULInt32('Compressed_Size'  ),
-                    ULInt32('Uncompressed_Size'),
-                ),
-            ),
-            Anchor('Position'),
         ),
     );
 
@@ -605,6 +600,7 @@ my $parser_central_directory_record =
             ULInt16('File_Comment_Length'            ),
             ULInt16('Disk_Number_Start'              ),
             ULInt16('Internal_File_Attributes'       ),
+            Anchor('Position'                        ),
             ULInt32('External_File_Attributes'       ),
             ULInt32('Relative_Offset_Of_Local_Header'),
             String
